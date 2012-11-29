@@ -19,6 +19,7 @@ main_SOURCES += rss.pb.cc
 
 main_LDADD =
 main_LDADD += $(MODULES_LIBS)
+main_LDADD += -lrabbitmq
 
 CLEANFILES = $(BUILT_SOURCES)
 

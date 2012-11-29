@@ -22,6 +22,8 @@
 
 #include "rss.pb.h"
 
+#include <amqp.h>
+
 using namespace std;
 using namespace boost;
 using namespace myrss;
@@ -134,8 +136,10 @@ public:
 static shared_ptr<event_base> base(event_base_new(), event_base_free);
 
 int main(void) {
-	time_t now(time(0));
-	printf("main[1] %s\n", ctime(&now));
+//	time_t now(time(0));
+//	printf("main[1] %s", ctime(&now));
+
+	printf("amqp_version=%s\n", amqp_version());
 
 	EventBus eventBus(base.get());
 
