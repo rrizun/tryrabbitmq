@@ -1,0 +1,27 @@
+package myrss;
+
+enum Language {
+	en_US=1;
+	fr_CA=2;
+}
+
+message RssItem {
+	required string title = 1;
+}
+
+message RssChannel {
+	required string title = 1;
+	repeated string link = 2;
+	required string description = 3;
+	required Language language = 4;
+	required string copyright = 5;
+	repeated RssItem item = 6; // list<RssItem>
+}
+
+message RssFeed {
+	required RssChannel channel = 1;
+}
+
+message ResetBladeEventMsg {
+	required string id = 1;
+}
