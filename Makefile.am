@@ -1,7 +1,7 @@
-
 AM_CPPFLAGS=
 bin_PROGRAMS=
 BUILT_SOURCES=
+CLEANFILES=
 
 AM_CPPFLAGS += $(MODULES_CFLAGS)
 
@@ -21,7 +21,7 @@ main_LDADD =
 main_LDADD += $(MODULES_LIBS)
 main_LDADD += -lrabbitmq
 
-CLEANFILES = $(BUILT_SOURCES)
+CLEANFILES += $(BUILT_SOURCES)
 
 rpm: all
 	rpmbuild --buildroot `pwd`/buildroot --define="_topdir ." --define="_builddir ." -bb tryrabbitmq.spec
