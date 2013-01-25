@@ -1,9 +1,11 @@
 AM_CPPFLAGS=
+AM_LDFLAGS=
 bin_PROGRAMS=
 BUILT_SOURCES=
 CLEANFILES=
 
 AM_CPPFLAGS += $(MODULES_CFLAGS)
+AM_LDFLAGS += $(MODULES_LIBS)
 
 %.pb.h %.pb.cc: %.proto
 	protoc -I. --cpp_out=. $<
@@ -18,7 +20,7 @@ main_SOURCES = main.cpp
 main_SOURCES += rss.pb.cc
 
 main_LDADD =
-main_LDADD += $(MODULES_LIBS)
+#main_LDADD += $(MODULES_LIBS)
 main_LDADD += -lrabbitmq
 
 CLEANFILES += $(BUILT_SOURCES)

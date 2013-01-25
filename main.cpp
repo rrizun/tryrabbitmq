@@ -23,10 +23,73 @@
 #include "rss.pb.h"
 
 #include <amqp.h>
+#include <amqp_framing.h>
 
 using namespace std;
 using namespace boost;
 using namespace myrss;
+
+void die_on_error(int x, char const *context) {
+  if (x < 0) {
+    char *errstr = amqp_error_string(-x);
+    fprintf(stderr, "%s: %s\n", context, errstr);
+    free(errstr);
+    exit(1);
+  }
+}
+
+void die_on_amqp_error(amqp_rpc_reply_t x, char const *context) {
+  switch (x.reply_type) {
+    case AMQP_RESPONSE_NORMAL:
+      return;
+
+    case AMQP_RESPONSE_NONE:
+      fprintf(stderr, "%s: missing RPC reply type!\n", context);
+      break;
+
+    case AMQP_RESPONSE_LIBRARY_EXCEPTION:
+      fprintf(stderr, "%s: %s\n", context, amqp_error_string(x.library_error));
+      break;
+
+    case AMQP_RESPONSE_SERVER_EXCEPTION:
+      switch (x.reply.id) {
+	case AMQP_CONNECTION_CLOSE_METHOD: {
+	  amqp_connection_close_t *m = (amqp_connection_close_t *) x.reply.decoded;
+	  fprintf(stderr, "%s: server connection error %d, message: %.*s\n",
+		  context,
+		  m->reply_code,
+		  (int) m->reply_text.len, (char *) m->reply_text.bytes);
+	  break;
+	}
+	case AMQP_CHANNEL_CLOSE_METHOD: {
+	  amqp_channel_close_t *m = (amqp_channel_close_t *) x.reply.decoded;
+	  fprintf(stderr, "%s: server channel error %d, message: %.*s\n",
+		  context,
+		  m->reply_code,
+		  (int) m->reply_text.len, (char *) m->reply_text.bytes);
+	  break;
+	}
+	default:
+	  fprintf(stderr, "%s: unknown server error, method id 0x%08X\n", context, x.reply.id);
+	  break;
+      }
+      break;
+  }
+
+  exit(1);
+}
+
+struct auto_amqp_connection_state_t {
+	amqp_connection_state_t state;
+	auto_amqp_connection_state_t(amqp_connection_state_t state) : state(state) {
+	}
+	~auto_amqp_connection_state_t() {
+		amqp_destroy_connection(state);
+	}
+	amqp_connection_state_t get() const {
+		return state;
+	}
+};
 
 //int
 //mainz(void) {
@@ -96,20 +159,60 @@ class EventBus {
 public:
 	// ctor
 	EventBus(event_base *base): base(base) {
+
+	}
+
+	~EventBus() {
+//		  die_on_amqp_error(amqp_channel_close(conn, 1, AMQP_REPLY_SUCCESS), "Closing channel");
+//		  die_on_amqp_error(amqp_connection_close(conn, AMQP_REPLY_SUCCESS), "Closing connection");
+//		  die_on_error(amqp_destroy_connection(conn), "Ending connection");
 	}
 
 	// client api
 	template<class CmdMsg>
-	void postCmdMsg(CmdMsg *cmdMsg) {
+	void postCmd(CmdMsg *cmdMsg) {
 		string name(cmdMsg->GetDescriptor()->name().c_str());
-		printf("postCmdMsg: name=%s\n", name.c_str());
+		printf("postCmd: name=%s\n", name.c_str());
 		dispatchers[name]->dispatch("zzz");
 	}
 	template<class EventMsg>
-	void postEventMsg(EventMsg *eventMsg) {
+	void postEvent(EventMsg *eventMsg) {
 		string name(eventMsg->GetDescriptor()->name().c_str());
 		printf("postEventMsg: name=%s\n", name.c_str());
-		dispatchers[name]->dispatch("zzz");
+
+		//		dispatchers[name]->dispatch("zzz");
+
+		  auto_amqp_connection_state_t state(amqp_new_connection()); // amqp_destroy_connection
+
+		  amqp_set_sockfd(state.get(), amqp_open_socket("localhost", 5672));
+
+		  die_on_amqp_error(amqp_login(state.get(), "/", 0, 131072, 0, AMQP_SASL_METHOD_PLAIN, "guest", "guest"), "Logging in");
+		  amqp_channel_open(state.get(), 1);
+		  die_on_amqp_error(amqp_get_rpc_reply(state.get()), "Opening channel");
+
+		  {
+		    amqp_basic_properties_t props;
+		    props._flags = AMQP_BASIC_CONTENT_TYPE_FLAG | AMQP_BASIC_DELIVERY_MODE_FLAG;
+		    props.content_type = amqp_cstring_bytes("text/plain");
+		    props.delivery_mode = 2; /* persistent delivery mode */
+
+		    string exchange(name);
+		    string payload((*eventMsg).SerializeAsString());
+		    string routingkey;
+
+		    die_on_error(amqp_basic_publish(state.get(),
+						    1,
+						    amqp_cstring_bytes(exchange.c_str()),
+						    amqp_cstring_bytes(routingkey.c_str()),
+						    0,
+						    0,
+						    &props,
+						    amqp_cstring_bytes(payload.c_str())),
+				 "Publishing");
+		  }
+
+		  die_on_amqp_error(amqp_channel_close(state.get(), 1, AMQP_REPLY_SUCCESS), "Closing channel");
+		  die_on_amqp_error(amqp_connection_close(state.get(), AMQP_REPLY_SUCCESS), "Closing connection");
 	}
 
 	// handler api
@@ -123,12 +226,13 @@ public:
 		event.PrintDebugString();
 		dispatchers[name]=shared_ptr<Dispatcher>(new Dispatcher0<EventMsg>(handler));
 	}
+
 };
 
-class MyResetBladeHandler: public EventHandler<ResetBladeEventMsg> {
+class MyResetBladeEventHandler: public EventHandler<ResetBladeEvent> {
 public:
 	// override
-	virtual void handleEvent(ResetBladeEventMsg *event) {
+	virtual void handleEvent(ResetBladeEvent *event) {
 		printf("MyResetBladeHandler::handleEvent\n");
 	}
 };
@@ -144,11 +248,13 @@ int main(void) {
 	EventBus eventBus(base.get());
 
 	// add handler
-	eventBus.addHandler(shared_ptr<EventHandler<ResetBladeEventMsg> >(new MyResetBladeHandler()));
+	eventBus.addHandler(shared_ptr<EventHandler<ResetBladeEvent> >(new MyResetBladeEventHandler()));
 
 	// post eventMsg
-	ResetBladeEventMsg eventMsg;
-	eventBus.postEventMsg(&eventMsg);
+	ResetBladeEvent eventMsg;
+	eventBus.postEvent(&eventMsg);
+
+	sleep(1); // seconds
 
 	return event_base_dispatch(base.get());
 }

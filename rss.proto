@@ -22,6 +22,11 @@ message RssFeed {
 	required RssChannel channel = 1;
 }
 
-message ResetBladeEventMsg {
+message ResetBladeEvent {
 	required string id = 1;
 }
+
+//queueDeclare("RaiseAlarmCmd")
+//queueDeclare("ClearAlarmCmd")
+//queueDeclare("RaiseAlarmEvent")
+//queueDeclare("ClearAlarmEvent")
