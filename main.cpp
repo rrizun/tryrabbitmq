@@ -32,16 +32,24 @@ using namespace boost;
 //using namespace myrss;
 using namespace google::protobuf;
 
+//
+// fatal_error.h
+//
+#include <sstream>
+#include <stdexcept>
+#include <string>
+
 #define SUMMARY_EVERY_US 1000000
 
+#define THROW(a,...)do{char _throw_tmp[1024];snprintf(_throw_tmp,sizeof(_throw_tmp),"%s:%d "a,__FILE__,__LINE__,##__VA_ARGS__);fprintf(stderr,"%s\n",_throw_tmp);throw runtime_error(_throw_tmp);}while(0)
+
+// local error
 void die_on_error(int x, char const *context) {
-  if (x < 0) {
-    shared_ptr<char> errstr(amqp_error_string(-x));
-    fprintf(stderr, "%s: %s\n", context, errstr.get());
-    throw runtime_error(string(context)+": "+string(errstr.get()));
-  }
+  if (x < 0)
+    THROW("%s: %s\n", context, auto_ptr<char>(amqp_error_string(-x)).get());
 }
 
+// remote rpc error
 void die_on_amqp_error(amqp_rpc_reply_t x, char const *context) {
   switch (x.reply_type) {
     case AMQP_RESPONSE_NORMAL:
@@ -82,6 +90,14 @@ void die_on_amqp_error(amqp_rpc_reply_t x, char const *context) {
 
   throw runtime_error("Oof!");
 }
+
+class auto_amqp_bytes {
+	amqp_bytes_t bytes;
+public:
+	auto_amqp_bytes(amqp_bytes_t bytes):bytes(bytes){}
+	~auto_amqp_bytes() {amqp_bytes_free(bytes);}
+	amqp_bytes_t get() const { return bytes; }
+};
 
 struct auto_amqp_connection_state_t {
 	amqp_connection_state_t state;
@@ -345,51 +361,46 @@ public:
 	int dispatch() {
 		while (1) {
 			try {
-		  int sockfd;
-		  amqp_connection_state_t conn = amqp_new_connection();
+		  auto_amqp_connection_state_t conn(amqp_new_connection());
 
-		  die_on_error(sockfd = amqp_open_socket("localhost", 5672), "Opening socket");
-		  amqp_set_sockfd(conn, sockfd);
-		  die_on_amqp_error(amqp_login(conn, "/", 0, 131072, 0, AMQP_SASL_METHOD_PLAIN, "guest", "guest"),
-					"Logging in");
-		  amqp_channel_open(conn, 1);
-		  die_on_amqp_error(amqp_get_rpc_reply(conn), "Opening channel");
+		  int sockfd;
+		  die_on_error(sockfd = amqp_open_socket("localhost", 5672), "amqp_open_socket");
+		  amqp_set_sockfd(conn.get(), sockfd);
+
+		  die_on_amqp_error(amqp_login(conn.get(), "/", 0, 131072, 0, AMQP_SASL_METHOD_PLAIN, "guest", "guest"), "amqp_login"); // rpc
+
+		  amqp_channel_open(conn.get(), 1); // rpc
+		  die_on_amqp_error(amqp_get_rpc_reply(conn.get()), "amqp_channel_open");
 
 		  for (DispatcherMap::iterator iter = dispatchers.begin(); iter != dispatchers.end(); ++iter) {
-			  amqp_bytes_t queuename;
-			  string exchange((*iter).first);
-			  {
-				amqp_queue_declare_ok_t *r = amqp_queue_declare(conn, 1, amqp_empty_bytes, 0, 0, 0, 1,
-										amqp_empty_table);
-				die_on_amqp_error(amqp_get_rpc_reply(conn), "Declaring queue");
-				queuename = amqp_bytes_malloc_dup(r->queue);
-				if (queuename.bytes == 0)
-					throw runtime_error("Out of memory while copying queue name");
-			  }
+			  string exchange((*iter).first); // e.g., "OWConfig"
 
-			  amqp_exchange_declare(conn, 1, amqp_cstring_bytes(exchange.c_str()), amqp_cstring_bytes("fanout"),
-						0, 0, amqp_empty_table);
-			  die_on_amqp_error(amqp_get_rpc_reply(conn), "amqp_exchange_declare");
+			  amqp_exchange_declare(conn.get(), 1, amqp_cstring_bytes(exchange.c_str()), amqp_cstring_bytes("fanout"), 0, 0, amqp_empty_table);
+			  die_on_amqp_error(amqp_get_rpc_reply(conn.get()), "amqp_exchange_declare");
 
-			  amqp_queue_bind(conn, 1, queuename, amqp_cstring_bytes(exchange.c_str()), amqp_cstring_bytes(""/*bindingkey*/),
-					  amqp_empty_table);
-			  die_on_amqp_error(amqp_get_rpc_reply(conn), "amqp_queue_bind");
+				amqp_queue_declare_ok_t *r = amqp_queue_declare(conn.get(), 1, amqp_empty_bytes, 0, 0, 0, 1, amqp_empty_table);
+				die_on_amqp_error(amqp_get_rpc_reply(conn.get()), "amqp_queue_declare");
 
-			  amqp_basic_consume(conn, 1, queuename, amqp_empty_bytes, 0, 1, 0, amqp_empty_table);
-			  die_on_amqp_error(amqp_get_rpc_reply(conn), "amqp_basic_consume");
+				auto_amqp_bytes queuename(amqp_bytes_malloc_dup(r->queue));
+
+			  amqp_queue_bind(conn.get(), 1, queuename.get(), amqp_cstring_bytes(exchange.c_str()), amqp_cstring_bytes(""/*bindingkey*/), amqp_empty_table);
+			  die_on_amqp_error(amqp_get_rpc_reply(conn.get()), "amqp_queue_bind");
+
+			  amqp_basic_consume(conn.get(), 1, queuename.get(), amqp_empty_bytes, 0, 1, 0, amqp_empty_table);
+			  die_on_amqp_error(amqp_get_rpc_reply(conn.get()), "amqp_basic_consume");
 		  }
 
-		  run(conn);
+		  run(conn.get());
 
-		  die_on_amqp_error(amqp_channel_close(conn, 1, AMQP_REPLY_SUCCESS), "Closing channel");
-		  die_on_amqp_error(amqp_connection_close(conn, AMQP_REPLY_SUCCESS), "Closing connection");
-		  die_on_error(amqp_destroy_connection(conn), "Ending connection");
+		  die_on_amqp_error(amqp_channel_close(conn.get(), 1, AMQP_REPLY_SUCCESS), "amqp_channel_close"); // rpc
+		  die_on_amqp_error(amqp_connection_close(conn.get(), AMQP_REPLY_SUCCESS), "amqp_connection_close"); // rpc
+//		  die_on_error(amqp_destroy_connection(conn.get()), "Ending connection");
 			} catch (std::exception &e) {
 				printf("%s\n", e.what());
 			}
 				time_t now(time(0));
 				printf("dispatch[1] %s", ctime(&now));
-			sleep(1);
+//			sleep(1);
 		} // while(1)
 	  return 0;
 	}
