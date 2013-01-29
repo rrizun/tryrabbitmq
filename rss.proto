@@ -36,7 +36,6 @@ message OWReport {
 	required string component_uri = 1;
 	required string foo = 2;
 	required string bar = 3;
-	required string value = 4;
 }
 
 message ResetBladeEvent {
