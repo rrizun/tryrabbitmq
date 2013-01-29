@@ -22,11 +22,12 @@ message RssFeed {
 	required RssChannel channel = 1;
 }
 
+message OWConfig {
+	required string component_uri = 1;
+	required string name = 2;
+	required string value = 3;
+}
+
 message ResetBladeEvent {
 	required string id = 1;
 }
-
-//queueDeclare("RaiseAlarmCmd")
-//queueDeclare("ClearAlarmCmd")
-//queueDeclare("RaiseAlarmEvent")
-//queueDeclare("ClearAlarmEvent")
