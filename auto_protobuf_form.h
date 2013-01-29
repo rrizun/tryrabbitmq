@@ -50,11 +50,12 @@ inline Form parseForm(string s) {
  */
 inline void
 ProtoReadForm(::google::protobuf::Message *message, Form form) {
-	for (Form::iterator iter = form.begin(); iter!=form.end(); ++iter) {
-		string name((*iter).first);
-		string value((*iter).second);
-		const FieldDescriptor *field = message->GetDescriptor()->FindFieldByName(name);
-		if (field) {
+	for (int index = 0; index < message->GetDescriptor()->field_count(); ++index) {
+		const FieldDescriptor *field = message->GetDescriptor()->field(index);
+		string name(field->name());
+		Form::iterator iter = form.find(name);
+		if (iter != form.end()) {
+			string value((*iter).second);
 			switch (field->cpp_type()) {
 			case FieldDescriptor::CPPTYPE_ENUM:
 			{
@@ -62,26 +63,19 @@ ProtoReadForm(::google::protobuf::Message *message, Form form) {
 				// try to do a case-insensitive lookup
 				to_upper(value);
 				boost::replace_all(value, "-", "_");
-				const EnumValueDescriptor *enumValue = 0;
 				for (int index = 0; index < field->enum_type()->value_count(); ++index) {
-					const EnumValueDescriptor *tmp = field->enum_type()->value(index);
-					string name(tmp->name());
+					const EnumValueDescriptor *enumValue = field->enum_type()->value(index);
+					string name(enumValue->name());
 					to_upper(name);
 					boost::replace_all(name, "-", "_");
 					if (name==value)
-						field->is_repeated()?message->GetReflection()->AddBool(message, field, enumValue):message->GetReflection()->SetEnum(message, field, enumValue);
+						field->is_repeated()?message->GetReflection()->AddEnum(message, field, enumValue):message->GetReflection()->SetEnum(message, field, enumValue);
 				}
 				break;
 			}
 			case FieldDescriptor::CPPTYPE_STRING:
-			{
-				if (field->is_repeated())
-					message->GetReflection()->AddString(message, field, value);
-				else {
-					message->GetReflection()->SetString(message, field, value);
-				}
+				field->is_repeated()?message->GetReflection()->AddString(message, field, value):message->GetReflection()->SetString(message, field, value);
 				break;
-			}
 			default:
 				break;
 			}
