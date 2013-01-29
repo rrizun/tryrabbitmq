@@ -11,6 +11,8 @@
 #include <boost/lexical_cast.hpp>
 #include <boost/shared_ptr.hpp>
 
+#include <curl/curl.h>
+
 #include <evhttp.h> // for evhttp_decode_uri
 
 #include <google/protobuf/descriptor.h>
@@ -23,7 +25,8 @@ using namespace google::protobuf;
 
 typedef multimap<string, string> Form;
 
-inline Form parseForm(string s) {
+inline Form
+parseForm(string s) {
 	Form form;
 	string line;
 	stringstream in(s);
@@ -39,6 +42,20 @@ inline Form parseForm(string s) {
 		}
 	}
 	return form;
+}
+
+inline string
+renderForm(Form form) {
+	CURL *handle;
+	string result;
+	for (std::map<string, string>::iterator iter = form.begin(); iter != form.end(); ++iter) {
+		if (iter != form.begin())
+			result += "&";
+		result += shared_ptr<char>(curl_easy_escape(handle, (*iter).first.c_str(), 0), curl_free).get();
+		result += "=";
+		result += shared_ptr<char>(curl_easy_escape(handle, (*iter).second.c_str(), 0), curl_free).get();
+	}
+	return result;
 }
 
 /**
@@ -80,5 +97,32 @@ ProtoReadForm(::google::protobuf::Message *message, Form form) {
 				break;
 			}
 		}
+	}
+}
+
+/**
+ * ProtoWriteForm
+ *
+ * writes from protobuf message to form
+ *
+ * @param form
+ */
+inline void
+ProtoWriteForm(::google::protobuf::Message *message, Form *form) {
+	for (int index = 0; index < message->GetDescriptor()->field_count(); ++index) {
+		const FieldDescriptor *field = message->GetDescriptor()->field(index);
+		string name(field->name());
+		if (message->GetReflection()->HasField(*message, field)) {
+			switch (field->cpp_type()) {
+			case FieldDescriptor::CPPTYPE_STRING:
+				form->insert(make_pair(name, message->GetReflection()->GetString(*message, field)));
+				break;
+			default:
+				break;
+			}
+		}
+//		if (message->GetReflection()->FieldSize(*message, field)>0) {
+//
+//		}
 	}
 }

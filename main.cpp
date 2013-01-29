@@ -3,34 +3,19 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-//#include <event2/event.h>
-
 // C++ includes
 #include <map>
 #include <string>
 #include <stdexcept>
+
 // lib includes
-#include <boost/regex.hpp>
 #include <boost/shared_ptr.hpp>
 
-#include <google/protobuf/message.h>
-#include <google/protobuf/descriptor.h>
-
-//#include <libxml2/libxml/parser.h>
-//#include <libxml2/libxml/tree.h>
-//#include <libxml2/libxml/xpath.h>
-
-#include "auto_protobuf_form.h"
-
+#include "auto_rabbitmq.h"
 #include "rss.pb.h"
-
-#include <amqp.h>
-#include <amqp_framing.h>
 
 using namespace std;
 using namespace boost;
-
-#include "auto_rabbitmq.h"
 
 class MyConfigHandler: public EventHandler<OWConfig> {
 public:
@@ -62,11 +47,18 @@ int main(void) {
 
 	auto_rabbitmq rmq("localhost", 5672);
 
-	rmq.eventHandler(shared_ptr<EventHandler<OWConfig> >(new MyConfigHandler()));
-	rmq.eventHandler(shared_ptr<EventHandler<OWStatus> >(new MyStatusHandler()));
-	rmq.eventHandler(shared_ptr<EventHandler<OWReport> >(new MyReportHandler()));
-
-	rmq.dispatch(); // run the main loop! typically on a different thread...
+	if (0) {
+		// consumer
+		rmq.eventHandler(shared_ptr<EventHandler<OWConfig> >(new MyConfigHandler()));
+		rmq.eventHandler(shared_ptr<EventHandler<OWStatus> >(new MyStatusHandler()));
+		rmq.eventHandler(shared_ptr<EventHandler<OWReport> >(new MyReportHandler()));
+		rmq.dispatch(); // run the main loop! typically on a different thread...
+	} else {
+		// producer
+		OWConfig config;
+		config.set_component_uri("yikes! from c++ land!!");
+		rmq.event(&config);
+	}
 
 	return 0;
 }

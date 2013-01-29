@@ -148,59 +148,109 @@ public:
 	auto_rabbitmq(string host, int port): host(host), port(port) {
 	}
 
-//	// client api
+	// producer api
 //	template<class CmdMsg>
 //	void postCmd(CmdMsg *cmdMsg) {
 //		string name(cmdMsg->GetDescriptor()->name().c_str());
 //		printf("postCmd: name=%s\n", name.c_str());
 //		dispatchers[name]->dispatch("zzz");
 //	}
-//	template<class EventMsg>
-//	void postEvent(EventMsg *eventMsg) {
-//		string name(eventMsg->GetDescriptor()->name().c_str());
-//		printf("postEventMsg: name=%s\n", name.c_str());
-//
-//		//		dispatchers[name]->dispatch("zzz");
-//
-//		  auto_amqp_connection_state_t state(amqp_new_connection()); // amqp_destroy_connection
-//
-//		  amqp_set_sockfd(state.get(), amqp_open_socket("localhost", 5672));
-//
-//		  die_on_amqp_error(amqp_login(state.get(), "/", 0, 131072, 0, AMQP_SASL_METHOD_PLAIN, "guest", "guest"), "Logging in");
-//		  amqp_channel_open(state.get(), 1);
-//		  die_on_amqp_error(amqp_get_rpc_reply(state.get()), "Opening channel");
-//
-//		  {
-//		    amqp_basic_properties_t props;
+	template<class EventMsg>
+	void event(EventMsg *eventMsg) {
+		string name(eventMsg->GetDescriptor()->name().c_str());
+		printf("postEventMsg: name=%s\n", name.c_str());
+
+		  auto_amqp_connection_state_t state(amqp_new_connection()); // amqp_destroy_connection
+
+		  amqp_set_sockfd(state.get(), amqp_open_socket(host.c_str(), port));
+
+		  die_on_amqp_error(amqp_login(state.get(), "/", 0, 131072, 0, AMQP_SASL_METHOD_PLAIN, "guest", "guest"), "amqp_login");
+		  amqp_channel_open(state.get(), 1);
+		  die_on_amqp_error(amqp_get_rpc_reply(state.get()), "amqp_channel_open");
+
+		  {
+		    amqp_basic_properties_t props;
+		    props._flags=0;
 //		    props._flags = AMQP_BASIC_CONTENT_TYPE_FLAG | AMQP_BASIC_DELIVERY_MODE_FLAG;
 //		    props.content_type = amqp_cstring_bytes("text/plain");
 //		    props.delivery_mode = 2; /* persistent delivery mode */
-//
-//		    string exchange(name);
-//		    string payload((*eventMsg).SerializeAsString());
-//		    string routingkey;
-//
-//		    die_on_error(amqp_basic_publish(state.get(),
-//						    1,
-//						    amqp_cstring_bytes(exchange.c_str()),
-//						    amqp_cstring_bytes(routingkey.c_str()),
-//						    0,
-//						    0,
-//						    &props,
-//						    amqp_cstring_bytes(payload.c_str())),
-//				 "Publishing");
-//		  }
-//
-//		  die_on_amqp_error(amqp_channel_close(state.get(), 1, AMQP_REPLY_SUCCESS), "Closing channel");
-//		  die_on_amqp_error(amqp_connection_close(state.get(), AMQP_REPLY_SUCCESS), "Closing connection");
-//	}
 
+		    string exchange(name);
+		    Form form;
+		    ProtoWriteForm(eventMsg, &form);
+		    string payload(renderForm(form));
+		    string routingkey;
+
+		    die_on_error(amqp_basic_publish(state.get(),
+						    1,
+						    amqp_cstring_bytes(exchange.c_str()),
+						    amqp_cstring_bytes(routingkey.c_str()),
+						    0,
+						    0,
+						    &props,
+						    amqp_cstring_bytes(payload.c_str())),
+				 "amqp_basic_publish");
+		  }
+
+		  die_on_amqp_error(amqp_channel_close(state.get(), 1, AMQP_REPLY_SUCCESS), "Closing channel");
+		  die_on_amqp_error(amqp_connection_close(state.get(), AMQP_REPLY_SUCCESS), "Closing connection");
+	}
+
+	// consumer api
 	template<class EventMsg>
 	void eventHandler(shared_ptr< EventHandler<EventMsg> > handler) {
 		string name(EventMsg::descriptor()->name().c_str());
 		printf("eventHandler: %s\n", EventMsg::descriptor()->name().c_str());
 		dispatcherMap[name]=shared_ptr<Dispatcher>(new Dispatcher0<EventMsg>(handler));
 	}
+
+	int dispatch() {
+		while (1) {
+			try {
+				auto_amqp_connection_state_t conn(amqp_new_connection());
+
+				int sockfd;
+				die_on_error(sockfd = amqp_open_socket(host.c_str(), port), "amqp_open_socket");
+				amqp_set_sockfd(conn.get(), sockfd);
+
+				die_on_amqp_error(amqp_login(conn.get(), "/", 0, 131072, 0, AMQP_SASL_METHOD_PLAIN, "guest", "guest"), "amqp_login"); // rpc
+
+				amqp_channel_open(conn.get(), 1); // rpc
+				die_on_amqp_error(amqp_get_rpc_reply(conn.get()), "amqp_channel_open");
+
+				for (DispatcherMap::iterator iter = dispatcherMap.begin(); iter != dispatcherMap.end(); ++iter) {
+					string exchange((*iter).first); // e.g., "OWConfig"
+
+					amqp_exchange_declare(conn.get(), 1, amqp_cstring_bytes(exchange.c_str()), amqp_cstring_bytes("fanout"), 0, 0, amqp_empty_table);
+					die_on_amqp_error(amqp_get_rpc_reply(conn.get()), "amqp_exchange_declare");
+
+					amqp_queue_declare_ok_t *r = amqp_queue_declare(conn.get(), 1, amqp_empty_bytes, 0, 0, 0, 1, amqp_empty_table);
+					die_on_amqp_error(amqp_get_rpc_reply(conn.get()), "amqp_queue_declare");
+
+					auto_amqp_bytes queuename(amqp_bytes_malloc_dup(r->queue));
+
+					amqp_queue_bind(conn.get(), 1, queuename.get(), amqp_cstring_bytes(exchange.c_str()), amqp_cstring_bytes(""/*bindingkey*/), amqp_empty_table);
+					die_on_amqp_error(amqp_get_rpc_reply(conn.get()), "amqp_queue_bind");
+
+					amqp_basic_consume(conn.get(), 1, queuename.get(), amqp_empty_bytes, 0, 1, 0, amqp_empty_table);
+					die_on_amqp_error(amqp_get_rpc_reply(conn.get()), "amqp_basic_consume");
+				}
+
+				run(conn.get());
+
+				die_on_amqp_error(amqp_channel_close(conn.get(), 1, AMQP_REPLY_SUCCESS), "amqp_channel_close"); // rpc
+				die_on_amqp_error(amqp_connection_close(conn.get(), AMQP_REPLY_SUCCESS), "amqp_connection_close"); // rpc
+
+			} catch (std::exception &e) {
+				printf("%s\n", e.what());
+			}
+			time_t now(time(0));
+			printf("dispatch[1] %s", ctime(&now));
+			sleep(1);
+		} // while(1)
+		return 0;
+	}
+
 	void run(amqp_connection_state_t conn)
 	{
 	  int received = 0;
@@ -277,50 +327,4 @@ public:
 	  }
 	}
 
-	int dispatch() {
-		while (1) {
-			try {
-				auto_amqp_connection_state_t conn(amqp_new_connection());
-
-				int sockfd;
-				die_on_error(sockfd = amqp_open_socket(host.c_str(), port), "amqp_open_socket");
-				amqp_set_sockfd(conn.get(), sockfd);
-
-				die_on_amqp_error(amqp_login(conn.get(), "/", 0, 131072, 0, AMQP_SASL_METHOD_PLAIN, "guest", "guest"), "amqp_login"); // rpc
-
-				amqp_channel_open(conn.get(), 1); // rpc
-				die_on_amqp_error(amqp_get_rpc_reply(conn.get()), "amqp_channel_open");
-
-				for (DispatcherMap::iterator iter = dispatcherMap.begin(); iter != dispatcherMap.end(); ++iter) {
-					string exchange((*iter).first); // e.g., "OWConfig"
-
-					amqp_exchange_declare(conn.get(), 1, amqp_cstring_bytes(exchange.c_str()), amqp_cstring_bytes("fanout"), 0, 0, amqp_empty_table);
-					die_on_amqp_error(amqp_get_rpc_reply(conn.get()), "amqp_exchange_declare");
-
-					amqp_queue_declare_ok_t *r = amqp_queue_declare(conn.get(), 1, amqp_empty_bytes, 0, 0, 0, 1, amqp_empty_table);
-					die_on_amqp_error(amqp_get_rpc_reply(conn.get()), "amqp_queue_declare");
-
-					auto_amqp_bytes queuename(amqp_bytes_malloc_dup(r->queue));
-
-					amqp_queue_bind(conn.get(), 1, queuename.get(), amqp_cstring_bytes(exchange.c_str()), amqp_cstring_bytes(""/*bindingkey*/), amqp_empty_table);
-					die_on_amqp_error(amqp_get_rpc_reply(conn.get()), "amqp_queue_bind");
-
-					amqp_basic_consume(conn.get(), 1, queuename.get(), amqp_empty_bytes, 0, 1, 0, amqp_empty_table);
-					die_on_amqp_error(amqp_get_rpc_reply(conn.get()), "amqp_basic_consume");
-				}
-
-				run(conn.get());
-
-				die_on_amqp_error(amqp_channel_close(conn.get(), 1, AMQP_REPLY_SUCCESS), "amqp_channel_close"); // rpc
-				die_on_amqp_error(amqp_connection_close(conn.get(), AMQP_REPLY_SUCCESS), "amqp_connection_close"); // rpc
-
-			} catch (std::exception &e) {
-				printf("%s\n", e.what());
-			}
-			time_t now(time(0));
-			printf("dispatch[1] %s", ctime(&now));
-			sleep(1);
-		} // while(1)
-		return 0;
-	}
 };
