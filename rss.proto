@@ -1,4 +1,4 @@
-package myrss;
+//package myrss;
 
 enum Language {
 	en_US=1;
@@ -26,6 +26,17 @@ message OWConfig {
 	required string component_uri = 1;
 	required string name = 2;
 	required string value = 3;
+}
+message OWStatus {
+	required string component_uri = 1;
+	required string name = 2;
+	required string value = 3;
+}
+message OWReport {
+	required string component_uri = 1;
+	required string foo = 2;
+	required string bar = 3;
+	required string value = 4;
 }
 
 message ResetBladeEvent {

@@ -27,7 +27,7 @@
 
 using namespace std;
 using namespace boost;
-using namespace myrss;
+//using namespace myrss;
 using namespace google::protobuf;
 
 #define SUMMARY_EVERY_US 1000000
@@ -297,6 +297,9 @@ public:
 		     (int) d->exchange.len, (char *) d->exchange.bytes,
 		     (int) d->routing_key.len, (char *) d->routing_key.bytes);
 
+	    string exchange;
+		exchange.assign((const char *) d->exchange.bytes, d->exchange.len);
+
 	    result = amqp_simple_wait_frame(conn, &frame);
 	    if (result < 0)
 	      return;
@@ -329,10 +332,15 @@ public:
 
 	    received++;
 
-	    printf("yeah!\n");
-	    OWConfig config;
-	    config.set_value(payload);
-	    dispatchers["OWConfig"]->dispatch(&config);
+	    const Descriptor *type = DescriptorPool::generated_pool()->FindMessageTypeByName(exchange);
+	    if (type) {
+	    	shared_ptr<Message> message(MessageFactory::generated_factory()->GetPrototype(type)->New());
+	    	const FieldDescriptor *field = message->GetDescriptor()->FindFieldByName("value");
+	    	if (field) {
+	    		message->GetReflection()->SetString(message.get(), field, payload);
+	    	}
+		    dispatchers[exchange]->dispatch(message.get());
+	    }
 	  }
 	}
 
@@ -391,11 +399,27 @@ public:
 	}
 };
 
-class MyEventHandler: public EventHandler<OWConfig> {
+class MyConfigHandler: public EventHandler<OWConfig> {
 public:
 	// override
 	virtual void handleEvent(OWConfig *event) {
-		printf("MyEventHandler::handleEvent value=%s\n", event->value().c_str());
+		printf("config handler: value=%s\n", event->value().c_str());
+	}
+};
+
+class MyStatusHandler: public EventHandler<OWStatus> {
+public:
+	// override
+	virtual void handleEvent(OWStatus *event) {
+		printf("status handler: value=%s\n", event->value().c_str());
+	}
+};
+
+class MyReportHandler: public EventHandler<OWReport> {
+public:
+	// override
+	virtual void handleEvent(OWReport *event) {
+		printf("report handler: value=%s\n", event->value().c_str());
 	}
 };
 
@@ -407,7 +431,9 @@ int main(void) {
 
 	EventBus bus;
 
-	bus.eventHandler(shared_ptr<EventHandler<OWConfig> >(new MyEventHandler()));
+	bus.eventHandler(shared_ptr<EventHandler<OWConfig> >(new MyConfigHandler()));
+	bus.eventHandler(shared_ptr<EventHandler<OWStatus> >(new MyStatusHandler()));
+	bus.eventHandler(shared_ptr<EventHandler<OWReport> >(new MyReportHandler()));
 
 	bus.dispatch();
 
