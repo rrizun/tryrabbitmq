@@ -8,7 +8,7 @@
 // C++ includes
 #include <map>
 #include <string>
-
+#include <stdexcept>
 // lib includes
 #include <boost/regex.hpp>
 #include <boost/shared_ptr.hpp>
@@ -36,10 +36,9 @@ using namespace google::protobuf;
 
 void die_on_error(int x, char const *context) {
   if (x < 0) {
-    char *errstr = amqp_error_string(-x);
-    fprintf(stderr, "%s: %s\n", context, errstr);
-    free(errstr);
-    exit(1);
+    shared_ptr<char> errstr(amqp_error_string(-x));
+    fprintf(stderr, "%s: %s\n", context, errstr.get());
+    throw runtime_error(string(context)+": "+string(errstr.get()));
   }
 }
 
@@ -81,7 +80,7 @@ void die_on_amqp_error(amqp_rpc_reply_t x, char const *context) {
       break;
   }
 
-  exit(1);
+  throw runtime_error("Oof!");
 }
 
 struct auto_amqp_connection_state_t {
@@ -344,56 +343,54 @@ public:
 	}
 
 	int dispatch() {
-	//  char const *hostname;
-	//  int port;
-	//  char const *exchange;
+		while (1) {
+			try {
+		  int sockfd;
+		  amqp_connection_state_t conn = amqp_new_connection();
 
-	  int sockfd;
-	  amqp_connection_state_t conn;
+		  die_on_error(sockfd = amqp_open_socket("localhost", 5672), "Opening socket");
+		  amqp_set_sockfd(conn, sockfd);
+		  die_on_amqp_error(amqp_login(conn, "/", 0, 131072, 0, AMQP_SASL_METHOD_PLAIN, "guest", "guest"),
+					"Logging in");
+		  amqp_channel_open(conn, 1);
+		  die_on_amqp_error(amqp_get_rpc_reply(conn), "Opening channel");
 
-	//  const char *exchange = "OWConfig"; /* argv[3]; */
+		  for (DispatcherMap::iterator iter = dispatchers.begin(); iter != dispatchers.end(); ++iter) {
+			  amqp_bytes_t queuename;
+			  string exchange((*iter).first);
+			  {
+				amqp_queue_declare_ok_t *r = amqp_queue_declare(conn, 1, amqp_empty_bytes, 0, 0, 0, 1,
+										amqp_empty_table);
+				die_on_amqp_error(amqp_get_rpc_reply(conn), "Declaring queue");
+				queuename = amqp_bytes_malloc_dup(r->queue);
+				if (queuename.bytes == 0)
+					throw runtime_error("Out of memory while copying queue name");
+			  }
 
-	  conn = amqp_new_connection();
+			  amqp_exchange_declare(conn, 1, amqp_cstring_bytes(exchange.c_str()), amqp_cstring_bytes("fanout"),
+						0, 0, amqp_empty_table);
+			  die_on_amqp_error(amqp_get_rpc_reply(conn), "amqp_exchange_declare");
 
-	  die_on_error(sockfd = amqp_open_socket("localhost", 5672), "Opening socket");
-	  amqp_set_sockfd(conn, sockfd);
-	  die_on_amqp_error(amqp_login(conn, "/", 0, 131072, 0, AMQP_SASL_METHOD_PLAIN, "guest", "guest"),
-			    "Logging in");
-	  amqp_channel_open(conn, 1);
-	  die_on_amqp_error(amqp_get_rpc_reply(conn), "Opening channel");
+			  amqp_queue_bind(conn, 1, queuename, amqp_cstring_bytes(exchange.c_str()), amqp_cstring_bytes(""/*bindingkey*/),
+					  amqp_empty_table);
+			  die_on_amqp_error(amqp_get_rpc_reply(conn), "amqp_queue_bind");
 
-	  for (DispatcherMap::iterator iter = dispatchers.begin(); iter != dispatchers.end(); ++iter) {
-		  amqp_bytes_t queuename;
-		  string exchange((*iter).first);
-		  {
-		    amqp_queue_declare_ok_t *r = amqp_queue_declare(conn, 1, amqp_empty_bytes, 0, 0, 0, 1,
-								    amqp_empty_table);
-		    die_on_amqp_error(amqp_get_rpc_reply(conn), "Declaring queue");
-		    queuename = amqp_bytes_malloc_dup(r->queue);
-		    if (queuename.bytes == NULL) {
-		      fprintf(stderr, "Out of memory while copying queue name");
-		      return 1;
-		    }
+			  amqp_basic_consume(conn, 1, queuename, amqp_empty_bytes, 0, 1, 0, amqp_empty_table);
+			  die_on_amqp_error(amqp_get_rpc_reply(conn), "amqp_basic_consume");
 		  }
 
-		  amqp_exchange_declare(conn, 1, amqp_cstring_bytes(exchange.c_str()), amqp_cstring_bytes("fanout"),
-					0, 0, amqp_empty_table);
-		  die_on_amqp_error(amqp_get_rpc_reply(conn), "amqp_exchange_declare");
+		  run(conn);
 
-		  amqp_queue_bind(conn, 1, queuename, amqp_cstring_bytes(exchange.c_str()), amqp_cstring_bytes(""/*bindingkey*/),
-				  amqp_empty_table);
-		  die_on_amqp_error(amqp_get_rpc_reply(conn), "amqp_queue_bind");
-
-		  amqp_basic_consume(conn, 1, queuename, amqp_empty_bytes, 0, 1, 0, amqp_empty_table);
-		  die_on_amqp_error(amqp_get_rpc_reply(conn), "amqp_basic_consume");
-	  }
-
-	  run(conn);
-
-	  die_on_amqp_error(amqp_channel_close(conn, 1, AMQP_REPLY_SUCCESS), "Closing channel");
-	  die_on_amqp_error(amqp_connection_close(conn, AMQP_REPLY_SUCCESS), "Closing connection");
-	  die_on_error(amqp_destroy_connection(conn), "Ending connection");
-
+		  die_on_amqp_error(amqp_channel_close(conn, 1, AMQP_REPLY_SUCCESS), "Closing channel");
+		  die_on_amqp_error(amqp_connection_close(conn, AMQP_REPLY_SUCCESS), "Closing connection");
+		  die_on_error(amqp_destroy_connection(conn), "Ending connection");
+			} catch (std::exception &e) {
+				printf("%s\n", e.what());
+			}
+				time_t now(time(0));
+				printf("dispatch[1] %s", ctime(&now));
+			sleep(1);
+		} // while(1)
 	  return 0;
 	}
 };
@@ -403,7 +400,7 @@ public:
 	// override
 	virtual void handleEvent(OWConfig *event) {
 		printf("holy cow! I got a config event!\n");
-		event->PrintDebugString();
+		printf("the component_uri is %s\n", event->component_uri().c_str());
 	}
 };
 
@@ -412,7 +409,7 @@ public:
 	// override
 	virtual void handleEvent(OWStatus *event) {
 		printf("holy crap!! I got a status event!!\n");
-		event->PrintDebugString();
+		printf("the component_uri is %s\n", event->component_uri().c_str());
 	}
 };
 
