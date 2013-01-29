@@ -19,7 +19,7 @@ bin_PROGRAMS += main
 main_SOURCES = main.cpp
 main_SOURCES += rss.pb.cc
 
-main_LDADD = -lrabbitmq $(LDADD)
+main_LDADD = -levent -lrabbitmq $(LDADD)
 
 CLEANFILES += $(BUILT_SOURCES)
 

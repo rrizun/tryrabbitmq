@@ -16,9 +16,11 @@
 #include <google/protobuf/message.h>
 #include <google/protobuf/descriptor.h>
 
-#include <libxml2/libxml/parser.h>
-#include <libxml2/libxml/tree.h>
-#include <libxml2/libxml/xpath.h>
+//#include <libxml2/libxml/parser.h>
+//#include <libxml2/libxml/tree.h>
+//#include <libxml2/libxml/xpath.h>
+
+#include "auto_protobuf_form.h"
 
 #include "rss.pb.h"
 
@@ -335,10 +337,7 @@ public:
 	    const Descriptor *type = DescriptorPool::generated_pool()->FindMessageTypeByName(exchange);
 	    if (type) {
 	    	shared_ptr<Message> message(MessageFactory::generated_factory()->GetPrototype(type)->New());
-	    	const FieldDescriptor *field = message->GetDescriptor()->FindFieldByName("value");
-	    	if (field) {
-	    		message->GetReflection()->SetString(message.get(), field, payload);
-	    	}
+	    	ProtoReadForm(message.get(), parseForm(payload)); // interpret msg payload as x-www-form-urlencoded
 		    dispatchers[exchange]->dispatch(message.get());
 	    }
 	  }
@@ -403,7 +402,8 @@ class MyConfigHandler: public EventHandler<OWConfig> {
 public:
 	// override
 	virtual void handleEvent(OWConfig *event) {
-		printf("config handler: value=%s\n", event->value().c_str());
+		printf("holy cow! I got a config event!\n");
+		event->PrintDebugString();
 	}
 };
 
@@ -411,7 +411,8 @@ class MyStatusHandler: public EventHandler<OWStatus> {
 public:
 	// override
 	virtual void handleEvent(OWStatus *event) {
-		printf("status handler: value=%s\n", event->value().c_str());
+		printf("holy crap!! I got a status event!!\n");
+		event->PrintDebugString();
 	}
 };
 
@@ -419,7 +420,7 @@ class MyReportHandler: public EventHandler<OWReport> {
 public:
 	// override
 	virtual void handleEvent(OWReport *event) {
-		printf("report handler: value=%s\n", event->value().c_str());
+		event->PrintDebugString();
 	}
 };
 

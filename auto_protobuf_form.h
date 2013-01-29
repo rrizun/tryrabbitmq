@@ -44,6 +44,8 @@ inline Form parseForm(string s) {
 /**
  * ProtoReadForm
  *
+ * reads from form to protobuf message
+ *
  * @param form
  */
 inline void
