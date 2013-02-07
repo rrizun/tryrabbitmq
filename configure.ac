@@ -14,6 +14,6 @@ AC_CHECK_LIB([rt], [main])
 AC_CHECK_LIB([pthread], [main])
 #AC_CHECK_LIB([mysql], [main])
 
-PKG_CHECK_MODULES([MODULES], [libcurl libidn openssl protobuf libxml-2.0])
+PKG_CHECK_MODULES([MODULES], [libcurl libevent libidn openssl protobuf libxml-2.0])
 
 AC_OUTPUT
