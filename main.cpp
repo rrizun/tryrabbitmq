@@ -47,7 +47,7 @@ int main(void) {
 
 	auto_rabbitmq rmq("localhost", 5672);
 
-	if (0) {
+	if (1) {
 		// consumer
 		rmq.eventHandler(shared_ptr<EventHandler<OWConfig> >(new MyConfigHandler()));
 		rmq.eventHandler(shared_ptr<EventHandler<OWStatus> >(new MyStatusHandler()));
