@@ -3,4 +3,4 @@ autoreconf -fiv
 
 # build rabbitmq-c
 unzip -u rabbitmq-c-rabbitmq-c-v0.3.0.zip
-cd rabbitmq-c-rabbitmq-c-v0.3.0 && cmake -DBUILD_STATIC_LIBS=1 . && cmake --build .
+cd rabbitmq-c-rabbitmq-c-v0.3.0 && cmake -DBUILD_STATIC_LIBS=1 . && make
