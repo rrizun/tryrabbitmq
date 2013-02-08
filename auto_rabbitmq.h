@@ -222,9 +222,9 @@ public:
 				amqp_queue_declare_ok_t *queue_declare_ok = amqp_queue_declare(conn.get(), 1, amqp_empty_bytes, 0, 0, 0, 1, amqp_empty_table);
 				die_on_amqp_error(amqp_get_rpc_reply(conn.get()), "amqp_queue_declare");
 
-				auto_amqp_bytes privateQueue(amqp_bytes_malloc_dup(queue_declare_ok->queue));
+				auto_amqp_bytes privateQueueName(amqp_bytes_malloc_dup(queue_declare_ok->queue));
 
-				amqp_basic_consume(conn.get(), 1, privateQueue.get(), amqp_empty_bytes, 0, 1, 0, amqp_empty_table);
+				amqp_basic_consume(conn.get(), 1, privateQueueName.get(), amqp_empty_bytes, 0, 1, 0, amqp_empty_table);
 				die_on_amqp_error(amqp_get_rpc_reply(conn.get()), "amqp_basic_consume");
 
 				for (DispatcherMap::iterator iter = dispatcherMap.begin(); iter != dispatcherMap.end(); ++iter) {
@@ -233,7 +233,7 @@ public:
 					amqp_exchange_declare(conn.get(), 1, amqp_cstring_bytes(exchange.c_str()), amqp_cstring_bytes("fanout"), 0, 0, amqp_empty_table);
 					die_on_amqp_error(amqp_get_rpc_reply(conn.get()), "amqp_exchange_declare");
 
-					amqp_queue_bind(conn.get(), 1, privateQueue.get(), amqp_cstring_bytes(exchange.c_str()), amqp_cstring_bytes(""/*bindingkey*/), amqp_empty_table);
+					amqp_queue_bind(conn.get(), 1, privateQueueName.get(), amqp_cstring_bytes(exchange.c_str()), amqp_cstring_bytes(""/*bindingkey*/), amqp_empty_table);
 					die_on_amqp_error(amqp_get_rpc_reply(conn.get()), "amqp_queue_bind");
 				}
 
