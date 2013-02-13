@@ -1,11 +1,10 @@
-LDADD=
-AM_CPPFLAGS=
 bin_PROGRAMS=
 BUILT_SOURCES=
 CLEANFILES=
 
-LDADD += $(MODULES_LIBS)
-AM_CPPFLAGS += $(MODULES_CFLAGS) -Irabbitmq-c-rabbitmq-c-v0.3.0/librabbitmq
+AM_CPPFLAGS = $(MODULES_CFLAGS) -Irabbitmq-c-rabbitmq-c-v0.3.0/librabbitmq
+#AM_LDFLAGS = -static
+LDADD = $(MODULES_LIBS)
 
 %.pb.h %.pb.cc: %.proto
 	protoc -I. --cpp_out=. $<
@@ -19,7 +18,7 @@ bin_PROGRAMS += main
 main_SOURCES = main.cpp
 main_SOURCES += rss.pb.cc
 
-main_LDADD = -levent rabbitmq-c-rabbitmq-c-v0.3.0/librabbitmq/librabbitmq.a $(LDADD)
+main_LDADD = $(LDADD) -levent rabbitmq-c-rabbitmq-c-v0.3.0/librabbitmq/librabbitmq.a
 
 CLEANFILES += $(BUILT_SOURCES)
 
