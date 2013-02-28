@@ -119,8 +119,5 @@ ProtoWriteForm(::google::protobuf::Message *message, Form *form) {
 				break;
 			}
 		}
-//		if (message->GetReflection()->FieldSize(*message, field)>0) {
-//
-//		}
 	}
 }
