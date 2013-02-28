@@ -13,8 +13,6 @@
 
 #include <curl/curl.h>
 
-#include <evhttp.h> // for evhttp_decode_uri
-
 #include <google/protobuf/descriptor.h>
 #include <google/protobuf/message.h>
 
