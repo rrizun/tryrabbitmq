@@ -32,10 +32,10 @@ parseForm(string s) {
 		stringstream tmp(line);
 		string key;
 		if (getline(tmp, key, '=')) {
-			key = shared_ptr<char>(evhttp_decode_uri(key.c_str())).get();
+			key = shared_ptr<char>(curl_easy_unescape(0, key.c_str(), 0, 0), curl_free).get();
 			string value;
 			if (getline(tmp, value, '='))
-				value = shared_ptr<char>(evhttp_decode_uri(value.c_str())).get();
+				value = shared_ptr<char>(curl_easy_unescape(0, value.c_str(), 0, 0), curl_free).get();
 			form.insert(make_pair(key, value));
 		}
 	}
